@@ -141,14 +141,15 @@ function wrapTokens(tokens, maxWidth, fontSize, emojiSize) {
 }
 
 function renderLineTokens(tokens, x, y, fontSize, emojiSize) {
-  let output = '';
   let cursorX = x;
   let textBuffer = '';
+  const textSegments = [];
+  const emojiSegments = [];
 
   const flushText = () => {
     if (!textBuffer) return;
     const safe = escapeXML(textBuffer);
-    output += `<text x="${cursorX}" y="${y}" class="msg" style="font-size:${fontSize}px;">${safe}</text>`;
+    textSegments.push({ x: cursorX, text: safe });
     cursorX += approximateTextWidth(textBuffer, fontSize);
     textBuffer = '';
   };
@@ -156,7 +157,7 @@ function renderLineTokens(tokens, x, y, fontSize, emojiSize) {
   tokens.forEach((token) => {
     if (token.type === 'emoji') {
       flushText();
-      output += `<image href="${token.value}" x="${cursorX}" y="${y - emojiSize + 2}" width="${emojiSize}" height="${emojiSize}" />`;
+      emojiSegments.push({ x: cursorX, href: token.value });
       cursorX += emojiSize;
     } else {
       textBuffer += token.value;
@@ -164,6 +165,14 @@ function renderLineTokens(tokens, x, y, fontSize, emojiSize) {
   });
 
   flushText();
+
+  let output = '';
+  textSegments.forEach((seg) => {
+    output += `<text x="${seg.x}" y="${y}" class="msg" style="font-size:${fontSize}px;">${seg.text}</text>`;
+  });
+  emojiSegments.forEach((seg) => {
+    output += `<image href="${seg.href}" x="${seg.x}" y="${y - emojiSize + 2}" width="${emojiSize}" height="${emojiSize}" />`;
+  });
   return output;
 }
 
@@ -177,7 +186,9 @@ export default async function handler(req, res) {
 
   const emojiMap = getEmojiMap();
 
-  const width = 228;
+  const sizeParam = String(req.query?.size || '');
+  const isMobile = sizeParam === 'mobile' || String(req.query?.mobile || '') === '1';
+  const width = isMobile ? 301 : 228;
   const height = 266;
   const padding = 10;
   const nameSize = 12;

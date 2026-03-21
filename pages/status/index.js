@@ -28,12 +28,16 @@ export default function StatusPage() {
   const [emojiMap, setEmojiMap] = useState({});
   const [emojiList, setEmojiList] = useState([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showStatusEmojiPicker, setShowStatusEmojiPicker] = useState(false);
+  const [statusEmojiName, setStatusEmojiName] = useState('');
   const [avatarDataUrl, setAvatarDataUrl] = useState('');
   const [showAvatarUploader, setShowAvatarUploader] = useState(false);
   const [isAuthed, setIsAuthed] = useState(false);
   const MAX_CHARS = 140;
   const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
   const MAX_AVATAR_MB = 5;
+  const AVATAR_STORAGE_KEY = 'status_avatar_data';
+  const STATUS_EMOJI_KEY = 'status_emoji_name';
 
   const refreshStatus = async () => {
     const res = await fetch('/api/status.json');
@@ -44,6 +48,48 @@ export default function StatusPage() {
   useEffect(() => {
     refreshStatus().catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const storedAvatar = window.localStorage.getItem(AVATAR_STORAGE_KEY);
+      if (storedAvatar) setAvatarDataUrl(storedAvatar);
+    } catch (err) {
+      // ignore storage errors
+    }
+    try {
+      const storedEmoji = window.localStorage.getItem(STATUS_EMOJI_KEY);
+      if (storedEmoji) setStatusEmojiName(storedEmoji);
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (avatarDataUrl) {
+        window.localStorage.setItem(AVATAR_STORAGE_KEY, avatarDataUrl);
+      } else {
+        window.localStorage.removeItem(AVATAR_STORAGE_KEY);
+      }
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [avatarDataUrl]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (statusEmojiName) {
+        window.localStorage.setItem(STATUS_EMOJI_KEY, statusEmojiName);
+      } else {
+        window.localStorage.removeItem(STATUS_EMOJI_KEY);
+      }
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [statusEmojiName]);
 
   useEffect(() => {
     fetch('/api/status/me')
@@ -75,12 +121,15 @@ export default function StatusPage() {
     const trimmedName = name.trim().slice(0, 30);
     const trimmedMessage = message.trim().slice(0, MAX_CHARS);
     if (!trimmedName || !trimmedMessage) return;
+    const nameWithStatusEmoji = statusEmojiName
+      ? `:${statusEmojiName}: ${trimmedName}`
+      : trimmedName;
 
     await fetch('/api/status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: trimmedName,
+        name: nameWithStatusEmoji,
         message: trimmedMessage,
         avatar_url: avatarDataUrl || null,
       }),
@@ -90,10 +139,16 @@ export default function StatusPage() {
     setMessage('');
     setCharCount(0);
     setShowEmojiPicker(false);
+    setShowStatusEmojiPicker(false);
   };
 
   const insertEmoji = (emojiName) => {
     setMessage(current => `:${emojiName}: ${current}`.trimStart());
+  };
+
+  const setStatusEmoji = (emojiName) => {
+    setStatusEmojiName(emojiName);
+    setShowStatusEmojiPicker(false);
   };
 
   const handleAvatarFile = (file) => {
@@ -350,6 +405,23 @@ export default function StatusPage() {
           position: relative;
           z-index: 2;
         }
+        .status-emoji-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 4px 0 8px;
+        }
+        .status-emoji-preview {
+          width: 18px;
+          height: 18px;
+          border: 1px solid #777;
+          background: #fff;
+          object-fit: contain;
+        }
+        .status-emoji-clear {
+          font-size: 12px;
+          padding: 2px 8px;
+        }
         .avatar-button {
           font-size: 12px;
           padding: 2px 10px;
@@ -426,11 +498,6 @@ export default function StatusPage() {
           </div>
           <section>
             <div className="panel-title">Post a Status</div>
-            {!isAuthed && (
-              <div style={{ fontSize: 12, marginBottom: 8 }}>
-                Private. Go to /status/login to post.
-              </div>
-            )}
             <form onSubmit={handleSubmit} autoComplete="off">
               <div className="name-row">
                 <div>
@@ -439,6 +506,33 @@ export default function StatusPage() {
                     type="text" value={name}
                     onChange={e => setName(e.target.value)}
                     maxLength={30} required />
+                  <div className="status-emoji-row">
+                    <button
+                      type="button"
+                      className="emoji-toggle"
+                      onClick={() => setShowStatusEmojiPicker(current => !current)}
+                      disabled={emojiList.length === 0 || !isAuthed}
+                    >
+                      {emojiList.length === 0 ? 'No emojis found' : 'Status Emoji'}
+                    </button>
+                    {statusEmojiName && emojiMap[statusEmojiName] && (
+                      <img
+                        className="status-emoji-preview"
+                        src={emojiMap[statusEmojiName]}
+                        alt={statusEmojiName}
+                      />
+                    )}
+                    {statusEmojiName && (
+                      <button
+                        type="button"
+                        className="status-emoji-clear"
+                        onClick={() => setStatusEmojiName('')}
+                        disabled={!isAuthed}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                   <button
@@ -472,6 +566,21 @@ export default function StatusPage() {
                     style={{ display: 'block', margin: '6px auto 0' }}
                     disabled={!isAuthed}
                   />
+                </div>
+              )}
+              {showStatusEmojiPicker && (
+                <div className="emoji-panel">
+                  {emojiList.map(emoji => (
+                    <button
+                      key={`status-${emoji.name}`}
+                      type="button"
+                      className="emoji-item"
+                      title={`:${emoji.name}:`}
+                      onClick={() => setStatusEmoji(emoji.name)}
+                    >
+                      <img src={emoji.url} alt={emoji.name} />
+                    </button>
+                  ))}
                 </div>
               )}
               <label>Status</label>

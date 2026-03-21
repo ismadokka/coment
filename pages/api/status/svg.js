@@ -141,14 +141,15 @@ function wrapTokens(tokens, maxWidth, fontSize, emojiSize) {
 }
 
 function renderLineTokens(tokens, x, y, fontSize, emojiSize) {
-  let output = '';
   let cursorX = x;
   let textBuffer = '';
+  const textSegments = [];
+  const emojiSegments = [];
 
   const flushText = () => {
     if (!textBuffer) return;
     const safe = escapeXML(textBuffer);
-    output += `<text x="${cursorX}" y="${y}" class="msg" style="font-size:${fontSize}px;">${safe}</text>`;
+    textSegments.push({ x: cursorX, text: safe });
     cursorX += approximateTextWidth(textBuffer, fontSize);
     textBuffer = '';
   };
@@ -156,7 +157,7 @@ function renderLineTokens(tokens, x, y, fontSize, emojiSize) {
   tokens.forEach((token) => {
     if (token.type === 'emoji') {
       flushText();
-      output += `<image href="${token.value}" x="${cursorX}" y="${y - emojiSize + 2}" width="${emojiSize}" height="${emojiSize}" />`;
+      emojiSegments.push({ x: cursorX, href: token.value });
       cursorX += emojiSize;
     } else {
       textBuffer += token.value;
@@ -164,6 +165,50 @@ function renderLineTokens(tokens, x, y, fontSize, emojiSize) {
   });
 
   flushText();
+
+  let output = '';
+  textSegments.forEach((seg) => {
+    output += `<text x="${seg.x}" y="${y}" class="msg" style="font-size:${fontSize}px;">${seg.text}</text>`;
+  });
+  emojiSegments.forEach((seg) => {
+    output += `<image href="${seg.href}" x="${seg.x}" y="${y - emojiSize + 2}" width="${emojiSize}" height="${emojiSize}" />`;
+  });
+  return output;
+}
+
+function renderInlineTokens(tokens, x, y, fontSize, emojiSize, textClass) {
+  let cursorX = x;
+  let textBuffer = '';
+  const textSegments = [];
+  const emojiSegments = [];
+
+  const flushText = () => {
+    if (!textBuffer) return;
+    const safe = escapeXML(textBuffer);
+    textSegments.push({ x: cursorX, text: safe });
+    cursorX += approximateTextWidth(textBuffer, fontSize);
+    textBuffer = '';
+  };
+
+  tokens.forEach((token) => {
+    if (token.type === 'emoji') {
+      flushText();
+      emojiSegments.push({ x: cursorX, href: token.value });
+      cursorX += emojiSize;
+    } else {
+      textBuffer += token.value;
+    }
+  });
+
+  flushText();
+
+  let output = '';
+  textSegments.forEach((seg) => {
+    output += `<text x="${seg.x}" y="${y}" class="${textClass}" style="font-size:${fontSize}px;">${seg.text}</text>`;
+  });
+  emojiSegments.forEach((seg) => {
+    output += `<image href="${seg.href}" x="${seg.x}" y="${y - emojiSize + 2}" width="${emojiSize}" height="${emojiSize}" />`;
+  });
   return output;
 }
 
@@ -184,16 +229,18 @@ export default async function handler(req, res) {
   const msgSize = 13;
   const lineHeight = 16;
   const emojiSize = 12;
+  const nameEmojiSize = 12;
   const avatarSize = 20;
   const avatarGap = 6;
   const backgroundUrl = '';
 
   const status = statusList[0];
   const renderedLines = [];
+  let defs = '';
 
   if (status) {
     const timeAgo = formatTimeAgo(status.created_at);
-    const name = escapeXML(status.name);
+    const nameTokens = tokenizeWithEmojis(status.name || '', emojiMap);
     const messageTokens = tokenizeWithEmojis(status.message || '', emojiMap);
 
     const hasAvatar = Boolean(status.avatar_url);
@@ -202,13 +249,16 @@ export default async function handler(req, res) {
     const wrapped = wrapTokens(messageTokens, maxTextWidth, msgSize, emojiSize);
     const blockTop = padding;
     if (hasAvatar) {
+      const avatarX = padding;
+      const avatarY = blockTop + 6;
+      defs = `<clipPath id="avatar-clip"><rect x="${avatarX}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}" rx="2" ry="2" /></clipPath>`;
       renderedLines.push(
-        `<image href="${status.avatar_url}" x="${padding}" y="${blockTop + 6}" width="${avatarSize}" height="${avatarSize}" />`
+        `<image href="${status.avatar_url}" x="${avatarX}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatar-clip)" />`
       );
     }
 
     const nameY = blockTop + 14;
-    renderedLines.push(`<text x="${textStartX}" y="${nameY}" class="name" style="font-size:${nameSize}px;">${name}</text>`);
+    renderedLines.push(renderInlineTokens(nameTokens, textStartX, nameY, nameSize, nameEmojiSize, 'name'));
     renderedLines.push(`<text x="${width - padding}" y="${nameY}" class="date" style="font-size:9px;" text-anchor="end">${timeAgo}</text>`);
 
     let y = nameY + lineHeight;
@@ -221,8 +271,10 @@ export default async function handler(req, res) {
     renderedLines.push(`<text x="${padding}" y="${padding + 16}" class="msg" style="font-size:11px;">no status yet</text>`);
   }
 
+  const defsBlock = defs ? `<defs>${defs}</defs>` : '';
   const svg = `<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  ${defsBlock}
   <style>
     <![CDATA[
     .name { font-family: "MS UI Gothic", sans-serif; fill: #000000; font-weight: bold; }

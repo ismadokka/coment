@@ -186,7 +186,7 @@ export default async function handler(req, res) {
   const replyAvatarSize = 20;
   const avatarGap = 8;
   const cardGap = 8;
-  const replyIndent = 18;
+  const replyIndent = 22;
 
   const parentComments = comments.filter(c => !c.parent_id);
   const repliesByParent = comments
@@ -200,8 +200,10 @@ export default async function handler(req, res) {
   });
 
   let y = padding + nameSize + 8;
+  const threadCurves = []; // curvas reddit, desenhadas DEPOIS (por baixo dos cards)
   const renderedLines = [];
 
+  // desenha um comentario. retorna a posicao do centro-base do avatar (pra ligar curvas).
   function drawComment(comment, opts) {
     const isReply = opts.isReply;
     const leftBase = padding + (isReply ? replyIndent : 0);
@@ -219,10 +221,6 @@ export default async function handler(req, res) {
     const wrapped = wrapTokens(messageTokens, maxTextWidth, msgSize, emojiSize);
     const blockHeight = (lineHeight * (wrapped.length + 1)) + 14;
     const blockTop = y - nameSize - 8;
-
-    if (isReply) {
-      renderedLines.push(`<line x1="${padding + 3}" y1="${blockTop}" x2="${padding + 3}" y2="${blockTop + blockHeight}" class="threadline" />`);
-    }
 
     renderedLines.push(`<rect x="${cardLeft}" y="${blockTop}" width="${cardWidth}" height="${blockHeight}" rx="${isReply ? 10 : 12}" class="${isReply ? 'card reply' : 'card'}" />`);
 
@@ -249,17 +247,39 @@ export default async function handler(req, res) {
       y += lineHeight;
     });
     y += cardGap + 8;
+
+    // retorna info do avatar pra ligar as curvas da thread
+    return { avatarBottomX: cx, avatarBottomY: cy + avSize / 2, avatarCenterX: cx };
   }
 
   parentComments.forEach((parent) => {
-    drawComment(parent, { isReply: false });
+    const parentInfo = drawComment(parent, { isReply: false });
     const replies = repliesByParent[parent.id] || [];
+
     replies.forEach((reply) => {
+      // antes de desenhar o reply, calcula onde o avatar dele vai ficar
+      const replyAvatarCenterY = y - nameSize - 1 + replyAvatarSize / 2;
+      const replyAvatarLeftX = padding + replyIndent; // borda esquerda do avatar do reply
+
+      // curva estilo reddit: desce reto do centro do avatar do pai e curva pra direita
+      const startX = parentInfo.avatarCenterX;
+      const turnY = replyAvatarCenterY;
+      const endX = replyAvatarLeftX - 3;
+      const radius = 8;
+      const d = `M ${startX} ${parentInfo.avatarBottomY + 2} `
+        + `L ${startX} ${turnY - radius} `
+        + `Q ${startX} ${turnY} ${startX + radius} ${turnY} `
+        + `L ${endX} ${turnY}`;
+      threadCurves.push(`<path d="${d}" class="threadcurve" fill="none" />`);
+
       drawComment(reply, { isReply: true });
     });
   });
 
   const height = Math.max(120, y + 4);
+
+  // curvas primeiro (por baixo), depois os cards/textos por cima
+  const allShapes = threadCurves.join('\n') + '\n' + renderedLines.join('\n');
 
   const svg = `<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
@@ -271,7 +291,7 @@ export default async function handler(req, res) {
     .more { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #5b6b7a; }
     .card { fill: rgba(255,255,255,0.55); stroke: rgba(120,90,70,0.22); stroke-width: 1; }
     .card.reply { fill: rgba(255,255,255,0.40); }
-    .threadline { stroke: rgba(120,90,70,0.35); stroke-width: 2; }
+    .threadcurve { stroke: rgba(120,90,70,0.40); stroke-width: 2; stroke-linecap: round; }
     .avatarbg { fill: rgba(160,57,58,0.85); }
     .avatarinitial { font-family: "Segoe UI", sans-serif; font-weight: 700; font-size: 12px; fill: #ffffff; }
 
@@ -282,13 +302,13 @@ export default async function handler(req, res) {
       .more { fill: #c2a08b; }
       .card { fill: rgba(227,174,138,0.10); stroke: rgba(227,174,138,0.22); }
       .card.reply { fill: rgba(227,174,138,0.06); }
-      .threadline { stroke: rgba(227,174,138,0.35); }
+      .threadcurve { stroke: rgba(227,174,138,0.40); }
       .avatarbg { fill: rgba(227,174,138,0.85); }
       .avatarinitial { fill: #16100d; }
     }
     ]]>
   </style>
-  ${renderedLines.join('\n')}
+  ${allShapes}
 </svg>`;
 
   res.setHeader('Content-Type', 'image/svg+xml');

@@ -1,4 +1,4 @@
-﻿import { getComments } from '../../lib/db';
+import { getComments } from '../../lib/db';
 import fs from 'fs';
 import path from 'path';
 
@@ -57,18 +57,6 @@ function getEmojiMap() {
     return map;
   } catch (err) {
     return {};
-  }
-}
-
-function getBase64PublicImage(fileName) {
-  try {
-    const filePath = path.join(process.cwd(), 'public', fileName);
-    const data = fs.readFileSync(filePath);
-    const ext = path.extname(fileName).toLowerCase();
-    const mime = ext === '.jpg' ? 'image/jpeg' : `image/${ext.replace('.', '')}`;
-    return `data:${mime};base64,${data.toString('base64')}`;
-  } catch (err) {
-    return '';
   }
 }
 
@@ -190,21 +178,21 @@ export default async function handler(req, res) {
   const isMobile = sizeParam === 'mobile' || String(req.query?.mobile || '') === '1';
   const width = isMobile ? 301 : 228;
   const height = 266;
-  const padding = 10;
+  const padding = 12;
   const nameSize = 12;
   const msgSize = 11;
-  const lineHeight = 14;
+  const lineHeight = 15;
   const emojiSize = 12;
-  const avatarSize = 18;
-  const avatarGap = 6;
+  const avatarSize = 26;
+  const avatarGap = 8;
+  const cardGap = 8;
   const maxComments = 6;
-  const backgroundUrl = getBase64PublicImage('background.png');
 
   const parentComments = comments.filter(c => !c.parent_id);
   const totalComments = parentComments.length;
   const limitedComments = parentComments.slice(0, maxComments);
 
-  let y = padding + nameSize + 6;
+  let y = padding + nameSize + 8;
   const renderedLines = [];
 
   limitedComments.forEach((comment) => {
@@ -213,23 +201,29 @@ export default async function handler(req, res) {
     const messageTokens = tokenizeWithEmojis(comment.message || '', emojiMap);
 
     const hasAvatar = Boolean(comment.avatar_url);
-    const textStartX = hasAvatar ? padding + avatarSize + avatarGap : padding;
-    const maxTextWidth = width - (padding * 2) - (hasAvatar ? (avatarSize + avatarGap) : 0);
+    const textStartX = padding + avatarSize + avatarGap;
+    const maxTextWidth = width - (padding * 2) - (avatarSize + avatarGap);
     const wrapped = wrapTokens(messageTokens, maxTextWidth, msgSize, emojiSize);
-    const blockHeight = (lineHeight * (wrapped.length + 1)) + 10;
-    const blockTop = y - nameSize - 6;
+    const blockHeight = (lineHeight * (wrapped.length + 1)) + 14;
+    const blockTop = y - nameSize - 8;
 
-    renderedLines.push(`<rect x="${padding - 4}" y="${blockTop}" width="${width - (padding * 2) + 8}" height="${blockHeight}" rx="3" fill="#383838" opacity="0.9" />`);
+    // caixa translucida estilo "glass" (cantos arredondados, borda suave)
+    renderedLines.push(`<rect x="${padding - 6}" y="${blockTop}" width="${width - (padding * 2) + 12}" height="${blockHeight}" rx="12" class="card" />`);
 
+    // avatar: usa o do comentario, ou um circulo placeholder com a inicial
+    const avatarY = y - nameSize - 1;
     if (hasAvatar) {
-      const avatarY = y - nameSize;
-      renderedLines.push(
-        `<image href="${comment.avatar_url}" x="${padding}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}" />`
-      );
+      renderedLines.push(`<clipPath id="clip${blockTop}"><circle cx="${padding + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" /></clipPath>`);
+      renderedLines.push(`<image href="${comment.avatar_url}" x="${padding}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}" clip-path="url(#clip${blockTop})" preserveAspectRatio="xMidYMid slice" />`);
+    } else {
+      const initial = escapeXML((comment.name || '?').trim().charAt(0).toUpperCase() || '?');
+      renderedLines.push(`<circle cx="${padding + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" class="avatarbg" />`);
+      renderedLines.push(`<text x="${padding + avatarSize / 2}" y="${avatarY + avatarSize / 2 + 4}" class="avatarinitial" text-anchor="middle">${initial}</text>`);
     }
 
     renderedLines.push(`<text x="${textStartX}" y="${y}" class="name" style="font-size:${nameSize}px;">${name}</text>`);
-    renderedLines.push(`<text x="${width - padding}" y="${y}" class="date" style="font-size:9px;" text-anchor="end">${timeAgo}</text>`);
+    const nameWidth = approximateTextWidth(comment.name || '', nameSize);
+    renderedLines.push(`<text x="${textStartX + nameWidth + 6}" y="${y}" class="date" style="font-size:9px;">· ${timeAgo}</text>`);
 
     y += lineHeight;
 
@@ -239,26 +233,38 @@ export default async function handler(req, res) {
       y += lineHeight;
     });
 
-    y += 6;
+    y += cardGap + 8;
   });
 
   if (totalComments > maxComments && y < height - 6) {
     renderedLines.push(
-      `<text x="${padding}" y="${height - 6}" class="more" style="font-size:9px;">and more ${totalComments - maxComments} comments</text>`
+      `<text x="${padding}" y="${height - 6}" class="more" style="font-size:9px;">and ${totalComments - maxComments} more comments</text>`
     );
   }
 
   const svg = `<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-  ${backgroundUrl ? `<image href="${backgroundUrl}" x="0" y="0" width="${width}" height="${height}" preserveAspectRatio="xMidYMid slice" />` : ''}
-  <rect x="0" y="0" width="${width}" height="${height}" fill="rgba(0,0,0,0.45)" />
-  <rect x="1" y="1" width="${width - 2}" height="${height - 2}" fill="rgba(20,20,20,0.75)" stroke="#5e5e5e" />
   <style>
     <![CDATA[
-    .name { font-family: "MS UI Gothic", sans-serif; fill: #e0e0e0; font-weight: bold; }
-    .date { font-family: monospace; fill: #9aa0a6; }
-    .msg { font-family: "MS UI Gothic", sans-serif; fill: #d5d5d5; }
-    .more { font-family: monospace; fill: #b0b0b0; }
+    /* ===== TEMA CLARO (padrao) ===== */
+    .name { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #15202b; font-weight: 700; }
+    .date { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #5b6b7a; }
+    .msg  { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #2a3a47; }
+    .more { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #5b6b7a; }
+    .card { fill: rgba(255,255,255,0.55); stroke: rgba(120,90,70,0.22); stroke-width: 1; }
+    .avatarbg { fill: rgba(160,57,58,0.85); }
+    .avatarinitial { font-family: "Segoe UI", sans-serif; font-weight: 700; font-size: 12px; fill: #ffffff; }
+
+    /* ===== TEMA ESCURO (segue o sistema/navegador) ===== */
+    @media (prefers-color-scheme: dark) {
+      .name { fill: #f4ece4; }
+      .date { fill: #c2a08b; }
+      .msg  { fill: #e6d8ca; }
+      .more { fill: #c2a08b; }
+      .card { fill: rgba(227,174,138,0.10); stroke: rgba(227,174,138,0.22); }
+      .avatarbg { fill: rgba(227,174,138,0.85); }
+      .avatarinitial { fill: #16100d; }
+    }
     ]]>
   </style>
   ${renderedLines.join('\n')}

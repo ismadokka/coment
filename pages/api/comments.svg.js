@@ -185,7 +185,7 @@ export default async function handler(req, res) {
   const avatarSize = 26;
   const replyAvatarSize = 20;
   const avatarGap = 8;
-  const cardGap = 8;
+  const cardGap = 16;
   const replyIndent = 22;
 
   const parentComments = comments.filter(c => !c.parent_id);

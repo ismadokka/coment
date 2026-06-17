@@ -177,91 +177,112 @@ export default async function handler(req, res) {
   const sizeParam = String(req.query?.size || '');
   const isMobile = sizeParam === 'mobile' || String(req.query?.mobile || '') === '1';
   const width = isMobile ? 301 : 228;
-  const height = 266;
   const padding = 12;
   const nameSize = 12;
   const msgSize = 11;
   const lineHeight = 15;
   const emojiSize = 12;
   const avatarSize = 26;
+  const replyAvatarSize = 20;
   const avatarGap = 8;
   const cardGap = 8;
-  const maxComments = 6;
+  const replyIndent = 18;
 
   const parentComments = comments.filter(c => !c.parent_id);
-  const totalComments = parentComments.length;
-  const limitedComments = parentComments.slice(0, maxComments);
+  const repliesByParent = comments
+    .filter(c => c.parent_id)
+    .reduce((acc, r) => {
+      (acc[r.parent_id] = acc[r.parent_id] || []).push(r);
+      return acc;
+    }, {});
+  Object.values(repliesByParent).forEach(list => {
+    list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  });
 
   let y = padding + nameSize + 8;
   const renderedLines = [];
 
-  limitedComments.forEach((comment) => {
+  function drawComment(comment, opts) {
+    const isReply = opts.isReply;
+    const leftBase = padding + (isReply ? replyIndent : 0);
+    const avSize = isReply ? replyAvatarSize : avatarSize;
+    const cardLeft = leftBase - 6;
+    const cardRight = width - padding + 6;
+    const cardWidth = cardRight - cardLeft;
+
     const timeAgo = formatTimeAgo(comment.created_at);
     const name = escapeXML(comment.name);
     const messageTokens = tokenizeWithEmojis(comment.message || '', emojiMap);
 
-    const hasAvatar = Boolean(comment.avatar_url);
-    const textStartX = padding + avatarSize + avatarGap;
-    const maxTextWidth = width - (padding * 2) - (avatarSize + avatarGap);
+    const textStartX = leftBase + avSize + avatarGap;
+    const maxTextWidth = width - padding - textStartX;
     const wrapped = wrapTokens(messageTokens, maxTextWidth, msgSize, emojiSize);
     const blockHeight = (lineHeight * (wrapped.length + 1)) + 14;
     const blockTop = y - nameSize - 8;
 
-    // caixa translucida estilo "glass" (cantos arredondados, borda suave)
-    renderedLines.push(`<rect x="${padding - 6}" y="${blockTop}" width="${width - (padding * 2) + 12}" height="${blockHeight}" rx="12" class="card" />`);
-
-    // avatar: usa o do comentario, ou um circulo placeholder com a inicial
-    const avatarY = y - nameSize - 1;
-    if (hasAvatar) {
-      renderedLines.push(`<clipPath id="clip${blockTop}"><circle cx="${padding + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" /></clipPath>`);
-      renderedLines.push(`<image href="${comment.avatar_url}" x="${padding}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}" clip-path="url(#clip${blockTop})" preserveAspectRatio="xMidYMid slice" />`);
-    } else {
-      const initial = escapeXML((comment.name || '?').trim().charAt(0).toUpperCase() || '?');
-      renderedLines.push(`<circle cx="${padding + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" class="avatarbg" />`);
-      renderedLines.push(`<text x="${padding + avatarSize / 2}" y="${avatarY + avatarSize / 2 + 4}" class="avatarinitial" text-anchor="middle">${initial}</text>`);
+    if (isReply) {
+      renderedLines.push(`<line x1="${padding + 3}" y1="${blockTop}" x2="${padding + 3}" y2="${blockTop + blockHeight}" class="threadline" />`);
     }
 
-    renderedLines.push(`<text x="${textStartX}" y="${y}" class="name" style="font-size:${nameSize}px;">${name}</text>`);
+    renderedLines.push(`<rect x="${cardLeft}" y="${blockTop}" width="${cardWidth}" height="${blockHeight}" rx="${isReply ? 10 : 12}" class="${isReply ? 'card reply' : 'card'}" />`);
+
+    const avatarY = y - nameSize - 1;
+    const cx = leftBase + avSize / 2;
+    const cy = avatarY + avSize / 2;
+    if (comment.avatar_url) {
+      const clipId = `clip${blockTop}_${isReply ? 'r' : 'p'}`;
+      renderedLines.push(`<clipPath id="${clipId}"><circle cx="${cx}" cy="${cy}" r="${avSize / 2}" /></clipPath>`);
+      renderedLines.push(`<image href="${comment.avatar_url}" x="${leftBase}" y="${avatarY}" width="${avSize}" height="${avSize}" clip-path="url(#${clipId})" preserveAspectRatio="xMidYMid slice" />`);
+    } else {
+      const initial = escapeXML((comment.name || '?').trim().charAt(0).toUpperCase() || '?');
+      renderedLines.push(`<circle cx="${cx}" cy="${cy}" r="${avSize / 2}" class="avatarbg" />`);
+      renderedLines.push(`<text x="${cx}" y="${cy + 4}" class="avatarinitial" text-anchor="middle">${initial}</text>`);
+    }
+
+    renderedLines.push(`<text x="${textStartX}" y="${y}" class="name" style="font-size:${isReply ? nameSize - 1 : nameSize}px;">${name}</text>`);
     const nameWidth = approximateTextWidth(comment.name || '', nameSize);
     renderedLines.push(`<text x="${textStartX + nameWidth + 6}" y="${y}" class="date" style="font-size:9px;">· ${timeAgo}</text>`);
 
     y += lineHeight;
-
     wrapped.forEach((lineTokens) => {
-      if (y > height - padding) return;
       renderedLines.push(renderLineTokens(lineTokens, textStartX, y, msgSize, emojiSize));
       y += lineHeight;
     });
-
     y += cardGap + 8;
+  }
+
+  parentComments.forEach((parent) => {
+    drawComment(parent, { isReply: false });
+    const replies = repliesByParent[parent.id] || [];
+    replies.forEach((reply) => {
+      drawComment(reply, { isReply: true });
+    });
   });
 
-  if (totalComments > maxComments && y < height - 6) {
-    renderedLines.push(
-      `<text x="${padding}" y="${height - 6}" class="more" style="font-size:9px;">and ${totalComments - maxComments} more comments</text>`
-    );
-  }
+  const height = Math.max(120, y + 4);
 
   const svg = `<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
   <style>
     <![CDATA[
-    /* ===== TEMA CLARO (padrao) ===== */
     .name { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #15202b; font-weight: 700; }
     .date { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #5b6b7a; }
     .msg  { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #2a3a47; }
     .more { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #5b6b7a; }
     .card { fill: rgba(255,255,255,0.55); stroke: rgba(120,90,70,0.22); stroke-width: 1; }
+    .card.reply { fill: rgba(255,255,255,0.40); }
+    .threadline { stroke: rgba(120,90,70,0.35); stroke-width: 2; }
     .avatarbg { fill: rgba(160,57,58,0.85); }
     .avatarinitial { font-family: "Segoe UI", sans-serif; font-weight: 700; font-size: 12px; fill: #ffffff; }
 
-    /* ===== TEMA ESCURO (segue o sistema/navegador) ===== */
     @media (prefers-color-scheme: dark) {
       .name { fill: #f4ece4; }
       .date { fill: #c2a08b; }
       .msg  { fill: #e6d8ca; }
       .more { fill: #c2a08b; }
       .card { fill: rgba(227,174,138,0.10); stroke: rgba(227,174,138,0.22); }
+      .card.reply { fill: rgba(227,174,138,0.06); }
+      .threadline { stroke: rgba(227,174,138,0.35); }
       .avatarbg { fill: rgba(227,174,138,0.85); }
       .avatarinitial { fill: #16100d; }
     }

@@ -129,22 +129,35 @@ export default function Home() {
     setReplyMessage(current => `:${emojiName}: ${current}`.trimStart());
   };
 
-  const handleAvatarFile = (file, isReply = false) => {
+const handleAvatarFile = (file, isReply = false) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) return;
-    if (file.size > MAX_AVATAR_BYTES) {
-      alert(`Avatar too large. Max ${MAX_AVATAR_MB}MB.`);
-      return;
-    }
 
     const reader = new FileReader();
     reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      if (isReply) {
-        setReplyAvatarDataUrl(result);
-      } else {
-        setAvatarDataUrl(result);
-      }
+      const img = new Image();
+      img.onload = () => {
+        // redimensiona pra um quadrado de 150px (corta no centro)
+        const SIZE = 150;
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext('2d');
+
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2;
+        const sy = (img.height - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
+
+        // exporta leve (jpeg 80%), bem abaixo do limite de envio
+        const result = canvas.toDataURL('image/jpeg', 0.8);
+        if (isReply) {
+          setReplyAvatarDataUrl(result);
+        } else {
+          setAvatarDataUrl(result);
+        }
+      };
+      img.src = typeof reader.result === 'string' ? reader.result : '';
     };
     reader.readAsDataURL(file);
   };

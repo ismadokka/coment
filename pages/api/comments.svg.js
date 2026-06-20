@@ -200,10 +200,9 @@ export default async function handler(req, res) {
   });
 
   let y = padding + nameSize + 8;
-  const threadCurves = []; // curvas reddit, desenhadas DEPOIS (por baixo dos cards)
+  const threadCurves = [];
   const renderedLines = [];
 
-  // desenha um comentario. retorna a posicao do centro-base do avatar (pra ligar curvas).
   function drawComment(comment, opts) {
     const isReply = opts.isReply;
     const leftBase = padding + (isReply ? replyIndent : 0);
@@ -222,7 +221,7 @@ export default async function handler(req, res) {
     const blockHeight = (lineHeight * (wrapped.length + 1)) + 14;
     const blockTop = y - nameSize - 8;
 
-    renderedLines.push(`<rect x="${cardLeft}" y="${blockTop}" width="${cardWidth}" height="${blockHeight}" rx="${isReply ? 10 : 12}" class="${isReply ? 'card reply' : 'card'}" />`);
+    renderedLines.push(`<rect x="${cardLeft}" y="${blockTop}" width="${cardWidth}" height="${blockHeight}" rx="11" class="${isReply ? 'card reply' : 'card'}" />`);
 
     const avatarY = y - nameSize - 1;
     const cx = leftBase + avSize / 2;
@@ -248,7 +247,6 @@ export default async function handler(req, res) {
     });
     y += cardGap + 8;
 
-    // retorna info do avatar pra ligar as curvas da thread
     return { avatarBottomX: cx, avatarBottomY: cy + avSize / 2, avatarCenterX: cx };
   }
 
@@ -257,11 +255,9 @@ export default async function handler(req, res) {
     const replies = repliesByParent[parent.id] || [];
 
     replies.forEach((reply) => {
-      // antes de desenhar o reply, calcula onde o avatar dele vai ficar
       const replyAvatarCenterY = y - nameSize - 1 + replyAvatarSize / 2;
-      const replyAvatarLeftX = padding + replyIndent; // borda esquerda do avatar do reply
+      const replyAvatarLeftX = padding + replyIndent;
 
-      // curva estilo reddit: desce reto do centro do avatar do pai e curva pra direita
       const startX = parentInfo.avatarCenterX;
       const turnY = replyAvatarCenterY;
       const endX = replyAvatarLeftX - 3;
@@ -278,34 +274,31 @@ export default async function handler(req, res) {
 
   const height = Math.max(120, y + 4);
 
-  // curvas primeiro (por baixo), depois os cards/textos por cima
   const allShapes = threadCurves.join('\n') + '\n' + renderedLines.join('\n');
 
   const svg = `<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  <defs>
+    <linearGradient id="cardgrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgb(50,50,50)" />
+      <stop offset="100%" stop-color="rgb(53,53,53)" />
+    </linearGradient>
+    <linearGradient id="cardgradreply" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgb(44,44,44)" />
+      <stop offset="100%" stop-color="rgb(47,47,47)" />
+    </linearGradient>
+  </defs>
   <style>
     <![CDATA[
-    .name { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #15202b; font-weight: 700; }
-    .date { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #5b6b7a; }
-    .msg  { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #2a3a47; }
-    .more { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #5b6b7a; }
-    .card { fill: rgba(255,255,255,0.55); stroke: rgba(120,90,70,0.22); stroke-width: 1; }
-    .card.reply { fill: rgba(255,255,255,0.40); }
-    .threadcurve { stroke: rgba(120,90,70,0.40); stroke-width: 2; stroke-linecap: round; }
-    .avatarbg { fill: rgba(160,57,58,0.85); }
-    .avatarinitial { font-family: "Segoe UI", sans-serif; font-weight: 700; font-size: 12px; fill: #ffffff; }
-
-    @media (prefers-color-scheme: dark) {
-      .name { fill: #f4ece4; }
-      .date { fill: #c2a08b; }
-      .msg  { fill: #e6d8ca; }
-      .more { fill: #c2a08b; }
-      .card { fill: rgba(227,174,138,0.10); stroke: rgba(227,174,138,0.22); }
-      .card.reply { fill: rgba(227,174,138,0.06); }
-      .threadcurve { stroke: rgba(227,174,138,0.40); }
-      .avatarbg { fill: rgba(227,174,138,0.85); }
-      .avatarinitial { fill: #16100d; }
-    }
+    /* ===== TEMA UNICO (solido) ===== */
+    .name { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #edededf5; font-weight: 700; }      /* COR DO NOME */
+    .date { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #B5BAC1; }                          /* COR DA DATA */
+    .msg  { font-family: "Segoe UI", "Helvetica Neue", sans-serif; fill: #edededf5; }                        /* COR DO TEXTO */
+    .card { fill: url(#cardgrad); stroke: #97979f4f; stroke-width: 1; }                                      /* FUNDO + BORDA do card */
+    .card.reply { fill: url(#cardgradreply); stroke: #97979f4f; }                                            /* card de reply (um tom mais escuro) */
+    .threadcurve { stroke: #97979f7a; stroke-width: 2; stroke-linecap: round; }                             /* fio da thread */
+    .avatarbg { fill: #97979f; }                                                                             /* fundo do circulo da inicial */
+    .avatarinitial { font-family: "Segoe UI", sans-serif; font-weight: 700; font-size: 12px; fill: #2e2e2e; } /* letra da inicial */
     ]]>
   </style>
   ${allShapes}
